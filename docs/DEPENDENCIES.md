@@ -139,71 +139,70 @@ github.com/google/uuid v1.4.0
 **Cons:**
 - Additional dependency for simple functionality
 
-**Option 2: crypto/rand + hex encoding**
+**Option 2: crypto/rand.Text() (Go 1.24+)**
 ```go
 // Standard library only
-import (
-    "crypto/rand"
-    "encoding/hex"
-)
+import "crypto/rand"
 
 func generateJobID() string {
-    bytes := make([]byte, 16)
-    rand.Read(bytes)
-    return hex.EncodeToString(bytes)
+    return rand.Text()
 }
 ```
 
 **Pros:**
 - No external dependencies
 - Cryptographically secure
-- Sufficient randomness for demo
+- Clean, simple implementation
+- Modern Go approach (Go 1.24+)
 
 **Cons:**
+- Requires Go 1.24+
 - Not RFC 4122 compliant
-- Manual implementation
 
-**Decision: Use crypto/rand approach**
+**Decision: Use crypto/rand.Text() approach**
 - Avoids dependency for simple use case
 - Demonstrates standard library preference
+- Cleaner implementation than manual hex encoding
 - Adequate for demonstration purposes
 
 ---
 
 #### Testing Utilities
 
-**Option 1: Standard Library testing**
+**Option 1: github.com/stretchr/testify (Recommended)**
+```go
+github.com/stretchr/testify v1.8.4
+```
+
+**Pros:**
+- Cleaner assertions and better readability
+- Mock support for interface testing
+- Test suites for organized testing
+- Team preference at organization
+
+**Cons:**
+- External dependency (testing only)
+
+**Option 2: Standard Library testing**
 ```go
 import "testing"
 ```
 
 **Pros:**
 - No dependencies
-- Sufficient for most testing needs
+- Sufficient for basic testing needs
 - Encourages simple test design
 
 **Cons:**
 - More verbose assertions
 - No test fixtures/helpers
+- Less readable test code
 
-**Option 2: github.com/stretchr/testify**
-```go
-github.com/stretchr/testify v1.8.4
-```
-
-**Pros:**
-- Cleaner assertions
-- Mock support
-- Test suites
-
-**Cons:**
-- External dependency
-- Can encourage over-testing
-
-**Decision: Standard library testing**
-- Keeps dependencies minimal
-- Sufficient for demonstration
-- Add testify later if tests become unwieldy
+**Decision: Use testify**
+- Aligns with team preferences and practices
+- Improves test readability and maintainability
+- Mock support beneficial for testing interfaces
+- Testing dependency has minimal impact on production
 
 ---
 
@@ -223,6 +222,9 @@ github.com/urfave/cli/v2 v2.25.7
 ```go
 // Code generation
 google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.3.0
+
+// Testing
+github.com/stretchr/testify v1.8.4
 ```
 
 ## Standard Library Usage
@@ -293,7 +295,7 @@ go install github.com/rakyll/gotest@latest  # Colored test output
 
 ## Version Strategy
 
-- **Go Version**: 1.21+ (for slog support)
+- **Go Version**: 1.24+ (for slog and crypto/rand.Text() support)
 - **Dependency Versions**: Use latest stable versions at implementation time
 - **Version Pinning**: go.mod will pin exact versions for reproducible builds
 

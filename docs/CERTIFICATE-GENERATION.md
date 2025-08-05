@@ -114,6 +114,14 @@ echo "Valid for $CERT_DAYS days from $(date)"
 - **Security**: Private keys should not be committed to version control
 - **Regeneration**: Run script again when certificates expire
 
+## Single CA Design Decision
+
+For this demonstration project, we use a single Certificate Authority to issue both server and client certificates. This approach is:
+
+- **Appropriate for demo scope**: Simplifies PKI management for testing with a limited number of engineers
+- **Secure for controlled environments**: Server explicitly trusts only our CA, rejecting certificates from other CAs
+- **Production consideration**: In production environments, multiple CAs in the trusted store would provide better key management for operations like certificate revocation and rotation, offering more granular control and operational flexibility
+
 ## Integration with Application
 
 The application expects certificates in the following locations:
@@ -126,6 +134,21 @@ caCert := "certs/ca.crt"
 clientCert := "certs/client1.crt"
 clientKey := "certs/client1.key"
 ```
+
+### mTLS TLS Configuration
+
+The application uses TLS 1.3 with Go's automatic cipher selection:
+
+```go
+tlsConfig := &tls.Config{
+    MinVersion:   tls.VersionTLS13,
+    Certificates: []tls.Certificate{serverCert},
+    ClientCAs:    caCertPool,
+    ClientAuth:   tls.RequireAndVerifyClientCert,
+}
+```
+
+**TLS 1.3 Cipher Selection**: Go automatically selects appropriate cipher suites (including ChaCha20-Poly1305 and AES-GCM) for TLS 1.3 connections. Manual cipher configuration is not required and is ignored by Go's TLS 1.3 implementation.
 
 ## Verification
 
