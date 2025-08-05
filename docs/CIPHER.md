@@ -39,19 +39,6 @@ Security robustness prioritized over marginal performance gains in a process man
 - **Composite design**: Combines AES encryption with GCM authentication
 
 
-## TLS 1.2 Fallback (if needed)
-
-### ECDHE-RSA-AES256-GCM-SHA384
-
-**Pros:**
-- **Forward secrecy**: ECDHE key exchange
-- **Strong encryption**: AES-256 with GCM mode
-- **Compatibility**: Broad support across systems
-
-**Cons:**
-- **Complexity**: More moving parts than TLS 1.3
-- **Performance**: Additional handshake overhead
-- **Legacy**: Should prefer TLS 1.3 when possible
 
 ## mTLS Specific Considerations
 
