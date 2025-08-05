@@ -76,10 +76,16 @@ Detailed system interaction workflows are documented in [SYSTEM-WORKFLOWS.md](..
 - Integration tests
 
 #### Phase 3: Streaming & Discovery
-- Real-time output streaming (tail -f behavior)
-- Efficient output discovery mechanisms (stream from any offset)
-- Multi-client streaming support with live broadcast
-- Non-blocking operations with simultaneous memory storage and client delivery
+- **Event-Driven Output Capture**: Raw byte-by-byte process output capture using `Read()` blocking (no polling)
+- **Atomic Buffer Management**: Thread-safe output storage using `atomic.Value` for race-free concurrent access
+- **Notification-Based Discovery**: Channel-based notification system for instant client wake-up on new data
+- **Moving Pointer Streaming**: Per-client offset tracking for gap-free delivery from process start
+- **Multiple Exit Handling**: Clean termination for client disconnect (Ctrl+C), process completion, and job termination
+- **Binary Data Support**: Raw `[]byte` handling without text encoding assumptions for any output type
+- **Unified Streaming Model**: Moving pointer seamlessly delivers historical and live data in single loop
+- **Lock-Free Architecture**: Channel-only coordination to avoid mutex deadlocks and complexity
+
+**Detailed Implementation**: See [STREAMING-IMPLEMENTATION.md](../docs/STREAMING-IMPLEMENTATION.md) for complete technical specifications, code examples, and performance characteristics.
 
 #### Phase 4: Security & Polish
 - User isolation enforcement
@@ -91,11 +97,11 @@ Detailed system interaction workflows are documented in [SYSTEM-WORKFLOWS.md](..
 
 **Authentication**: mTLS-only approach eliminates password management complexity while providing strong mutual authentication.
 
-**Output Streaming**: Non-blocking design prevents clients from affecting job execution. Complete process output is stored in memory from the beginning, allowing any client to stream from offset 0 to get the full history. After exhausting stored output, streams remain open and new data is simultaneously saved to memory and broadcast to all connected clients in real-time.
+**Output Streaming**: Event-driven capture with atomic buffer storage enables lock-free concurrent access. Moving pointer approach delivers complete history plus live data in unified streaming model. Each client maintains independent offset tracking for gap-free delivery without polling or busy-waiting.
 
 **User Isolation**: Per-user process isolation ensures users can only access jobs they created, with server-side enforcement at the API layer.
 
-**Concurrency**: Standard library synchronization primitives (mutex, channels) to avoid custom threading solutions.
+**Concurrency**: Channel-based coordination with atomic operations avoids mutex complexity. Lock-free architecture prevents deadlocks while supporting unlimited concurrent streaming clients.
 
 
 ## Security
@@ -114,6 +120,135 @@ Detailed system interaction workflows are documented in [SYSTEM-WORKFLOWS.md](..
 - **Process Isolation**: Users cannot access other users' jobs, job ownership verified on all operations
 - **Runtime Environment**: Jobs run with server process privileges in controlled environment
 - **Resource Protection**: Output streaming limited to prevent resource exhaustion, no arbitrary code execution in server process
+
+## Go Library API Specification
+
+The core library provides a clean interface that the gRPC server uses for job management. This design separates business logic from transport concerns.
+
+### Core Interface
+
+```go
+// JobManager provides the main library interface
+type JobManager interface {
+    StartJob(ctx context.Context, cmd string, args []string, owner string) (string, error)
+    StopJob(ctx context.Context, jobID string, owner string) error
+    GetJobStatus(ctx context.Context, jobID string, owner string) (*JobStatus, error)
+    StreamOutput(ctx context.Context, jobID string, owner string) (<-chan OutputChunk, error)
+}
+
+// JobStatus represents current job state
+type JobStatus struct {
+    JobID     string
+    State     JobState
+    ExitCode  int32
+    StartTime time.Time
+    EndTime   time.Time
+    Owner     string
+}
+
+// OutputChunk represents streaming output data
+type OutputChunk struct {
+    Data   []byte
+    Offset int64
+    Type   OutputType
+}
+
+// JobState represents job execution state
+type JobState int32
+
+const (
+    JobStateUnknown JobState = iota
+    JobStateRunning
+    JobStateCompleted
+    JobStateFailed
+    JobStateStopped
+)
+
+// OutputType distinguishes stdout/stderr
+type OutputType int32
+
+const (
+    OutputTypeStdout OutputType = iota
+    OutputTypeStderr
+)
+```
+
+### Implementation Structure
+
+```go
+// jobManager implements JobManager interface
+type jobManager struct {
+    jobs   map[string]*Job
+    jobsMu sync.RWMutex
+}
+
+// Job represents a running process with streaming capabilities
+type Job struct {
+    jobID     string
+    process   *exec.Cmd
+    outputCh  chan struct{}
+    doneCh    chan struct{}
+    buffer    atomic.Value  // []byte
+    owner     string
+    state     atomic.Value  // JobState
+    startTime time.Time
+    endTime   atomic.Value  // time.Time
+}
+```
+
+### Usage Examples
+
+```go
+// Initialize job manager
+manager := NewJobManager()
+
+// Start a job
+jobID, err := manager.StartJob(ctx, "ping", []string{"google.com"}, "user1")
+if err != nil {
+    return err
+}
+
+// Stream output
+outputCh, err := manager.StreamOutput(ctx, jobID, "user1")
+if err != nil {
+    return err
+}
+
+// Process streaming data
+for chunk := range outputCh {
+    fmt.Printf("Received %d bytes at offset %d\n", len(chunk.Data), chunk.Offset)
+    os.Stdout.Write(chunk.Data)
+}
+
+// Get job status
+status, err := manager.GetJobStatus(ctx, jobID, "user1")
+if err != nil {
+    return err
+}
+fmt.Printf("Job %s is %v\n", status.JobID, status.State)
+
+// Stop job
+err = manager.StopJob(ctx, jobID, "user1")
+```
+
+### Error Handling
+
+```go
+var (
+    ErrJobNotFound      = errors.New("job not found")
+    ErrPermissionDenied = errors.New("permission denied")
+    ErrJobAlreadyDone   = errors.New("job already completed")
+    ErrInvalidCommand   = errors.New("invalid command")
+)
+```
+
+### Key Design Principles
+
+- **Owner-based Authorization**: All operations require owner parameter for user isolation
+- **Context Propagation**: All methods accept context for cancellation and timeouts
+- **Streaming Channels**: Output streaming returns Go channels for natural concurrency
+- **Atomic State**: Thread-safe state management using atomic operations
+- **Error Types**: Specific error types enable proper gRPC status code mapping
 
 ## Proto Specification
 
@@ -151,25 +286,21 @@ message GetJobStatusRequest {
 }
 
 message GetJobStatusResponse {
-  string job_id = 1;
-  JobState state = 2;
-  int32 exit_code = 3;
-  int64 start_time = 4;
-  int64 end_time = 5;
-  string owner = 6;
+  JobState state = 1;
+  int32 exit_code = 2;
+  int64 start_time = 3;
+  int64 end_time = 4;
+  string owner = 5;
 }
 
 message StreamOutputRequest {
   string job_id = 1;
-  bool follow = 2;
-  int64 from_offset = 3;
 }
 
 message OutputChunk {
-  string job_id = 1;
-  bytes data = 2;
-  int64 offset = 3;
-  OutputType type = 4;
+  bytes data = 1;
+  int64 offset = 2;
+  OutputType type = 3;
 }
 
 enum JobState {
@@ -205,9 +336,9 @@ jobworker status abc123
 jobworker stop abc123
 # Output: Job abc123 stopped successfully
 
-# Stream from specific offset (resume/replay)
-jobworker stream abc123 --from-offset 1000
-# Shows output starting from byte 1000
+# Multiple clients can stream simultaneously
+jobworker stream abc123  # In second terminal
+# Each client gets complete history + live output
 ```
 
 ## Test Plan
