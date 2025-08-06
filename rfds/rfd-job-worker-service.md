@@ -132,16 +132,8 @@ The core library provides a clean interface that the gRPC server uses for job ma
 type JobManager interface {
     StartJob(ctx context.Context, cmd string, args []string, owner string) (string, error)
     StopJob(ctx context.Context, jobID string, owner string) error
-    GetJobStatus(ctx context.Context, jobID string, owner string) (*JobStatus, error)
+    GetJobStatus(ctx context.Context, jobID string, owner string) (bool, error) // returns true if running
     StreamOutput(ctx context.Context, jobID string, owner string) (<-chan OutputChunk, error)
-}
-
-// JobStatus groups essential job information to minimize client round-trips
-type JobStatus struct {
-    JobID     string
-    State     JobState
-    ExitCode  int32
-    Owner     string
 }
 
 // OutputChunk preserves byte boundaries to handle binary output correctly
@@ -151,14 +143,6 @@ type OutputChunk struct {
     Type   OutputType
 }
 
-// JobState uses int32 for protobuf enum compatibility
-type JobState int32
-
-const (
-    JobStateRunning JobState = iota   // process is actively executing
-    JobStateCompleted                 // process finished naturally (check ExitCode for success/failure)
-    JobStateStopped                   // process was terminated via StopJob() call
-)
 
 // OutputType enables proper terminal display routing
 type OutputType int32
@@ -186,7 +170,6 @@ type Job struct {
     doneCh    chan struct{}
     buffer    atomic.Value  // prevents race conditions during concurrent reads
     owner     string
-    state     atomic.Value  // enables lock-free state checking
 }
 ```
 
@@ -214,12 +197,12 @@ for chunk := range outputCh {
     os.Stdout.Write(chunk.Data)
 }
 
-// Get job status to check completion state
-status, err := manager.GetJobStatus(ctx, jobID, "user1")
+// Check if job is still running
+isRunning, err := manager.GetJobStatus(ctx, jobID, "user1")
 if err != nil {
     return err
 }
-fmt.Printf("Job %s is %v\n", status.JobID, status.State)
+fmt.Printf("Job %s is running: %t\n", jobID, isRunning)
 
 // Stop job to terminate long-running processes
 err = manager.StopJob(ctx, jobID, "user1")
@@ -231,7 +214,6 @@ err = manager.StopJob(ctx, jobID, "user1")
 var (
     ErrJobNotFound      = errors.New("job not found")
     ErrPermissionDenied = errors.New("permission denied")
-    ErrJobAlreadyDone   = errors.New("job already completed")
     ErrInvalidCommand   = errors.New("invalid command")
 )
 ```
@@ -241,7 +223,6 @@ var (
 - **Owner-based Authorization**: All operations require owner parameter for user isolation
 - **Context Propagation**: All methods accept context for cancellation and timeouts
 - **Streaming Channels**: Output streaming returns Go channels for natural concurrency
-- **Atomic State**: Thread-safe state management using atomic operations
 - **Error Types**: Specific error types enable proper gRPC status code mapping
 
 ## Proto Specification
@@ -280,9 +261,7 @@ message GetJobStatusRequest {
 }
 
 message GetJobStatusResponse {
-  JobState state = 1;
-  int32 exit_code = 2;
-  string owner = 3;
+  bool is_running = 1;
 }
 
 message StreamOutputRequest {
@@ -295,11 +274,6 @@ message OutputChunk {
   OutputType type = 3;
 }
 
-enum JobState {
-  RUNNING = 0;     // process is actively executing
-  COMPLETED = 1;   // process finished naturally (check exit_code for success/failure)
-  STOPPED = 2;     // process was terminated via StopJob() call
-}
 
 enum OutputType {
   STDOUT = 0;
@@ -318,9 +292,9 @@ jobworker start ping google.com
 jobworker stream abc123
 # Shows live output from the ping command
 
-# Check job status to verify execution state
+# Check if job is still running
 jobworker status abc123
-# Output: Job abc123 - RUNNING
+# Output: Job abc123 is running: true
 
 # Stop a running job to free resources
 jobworker stop abc123

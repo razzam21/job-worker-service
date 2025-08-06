@@ -33,9 +33,6 @@ type Job struct {
     doneCh   chan struct{}    // Coordinates clean shutdown across goroutines
     buffer   atomic.Value     // Ensures race-free access to growing output data
     owner    string          // Enables per-user job isolation
-    state    atomic.Value     // Allows concurrent state reads without locking
-    startTime time.Time
-    endTime   atomic.Value    // Supports concurrent access to completion time
 }
 
 type OutputChunk struct {
@@ -84,6 +81,12 @@ func (j *Job) captureOutput() {
             }
         }
     }()
+    
+    // Monitor process completion to signal streaming clients
+    go func() {
+        j.process.Wait() // Blocks until process exits
+        close(j.doneCh)  // Signal all streaming clients that process is done
+    }()
 }
 ```
 
@@ -92,6 +95,7 @@ func (j *Job) captureOutput() {
 - **Non-blocking Notifications**: `select` with `default` prevents capture goroutine from blocking
 - **Raw Byte Handling**: No assumptions about text encoding or line boundaries
 - **Efficient Chunking**: 4KB reads balance memory usage with system call overhead
+- **Simple Process Monitoring**: `process.Wait()` in dedicated goroutine signals completion to clients
 
 ### 3. Client Streaming Function
 
@@ -217,15 +221,22 @@ for {
 2. **Process Natural Exit**
    ```go
    go func() {
-       j.process.Wait() // Prevents zombie processes
-       close(j.doneCh)  // Coordinates graceful shutdown across all clients
+       j.process.Wait() // Blocks until process exits
+       close(j.doneCh)  // Signal all streaming clients that process is done
    }()
    ```
 
-3. **Process Killed**
+3. **Process Killed via StopJob**
    ```go
-   func (j *Job) Stop() error {
-       return j.process.Process.Kill() // Forces termination for stuck processes
+   func (jm *jobManager) StopJob(ctx context.Context, jobID string, owner string) error {
+       // ... validation code ...
+       
+       // Kill the process - this will cause process.Wait() to return
+       if err := job.process.Process.Kill(); err != nil {
+           return fmt.Errorf("failed to kill process: %w", err)
+       }
+       
+       return nil
    }
    ```
 
