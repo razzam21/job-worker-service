@@ -155,11 +155,9 @@ type OutputChunk struct {
 type JobState int32
 
 const (
-    JobStateUnknown JobState = iota
-    JobStateRunning
-    JobStateCompleted
-    JobStateFailed
-    JobStateStopped
+    JobStateRunning JobState = iota   // process is actively executing
+    JobStateCompleted                 // process finished naturally (check ExitCode for success/failure)
+    JobStateStopped                   // process was terminated via StopJob() call
 )
 
 // OutputType enables proper terminal display routing
@@ -298,11 +296,9 @@ message OutputChunk {
 }
 
 enum JobState {
-  UNKNOWN = 0;
-  RUNNING = 1;
-  COMPLETED = 2;
-  FAILED = 3;
-  STOPPED = 4;
+  RUNNING = 0;     // process is actively executing
+  COMPLETED = 1;   // process finished naturally (check exit_code for success/failure)
+  STOPPED = 2;     // process was terminated via StopJob() call
 }
 
 enum OutputType {
