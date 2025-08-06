@@ -35,9 +35,8 @@ type Job struct {
 }
 
 type OutputChunk struct {
-    Data   []byte     // Preserves binary data without encoding assumptions
-    Offset int64      // Enables client resume and gap detection
-    Type   OutputType // Distinguishes output streams for proper display
+    Data []byte     // Preserves binary data without encoding assumptions
+    Type OutputType // Distinguishes output streams for proper display
 }
 ```
 
@@ -120,9 +119,8 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
                 copy(unsent, currentBuffer[pointer:bufferSize])
                 
                 chunk := OutputChunk{
-                    Data:   unsent,
-                    Offset: pointer,
-                    Type:   OutputTypeStdout,
+                    Data: unsent,
+                    Type: OutputTypeStdout,
                 }
                 
                 select {
@@ -150,9 +148,8 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
                     
                     select {
                     case clientCh <- OutputChunk{
-                        Data:   remaining,
-                        Offset: pointer,
-                        Type:   OutputTypeStdout,
+                        Data: remaining,
+                        Type: OutputTypeStdout,
                     }:
                     case <-ctx.Done():
                     case <-time.After(5 * time.Second):
@@ -250,7 +247,6 @@ for {
 
 ### Network Efficiency
 - **Chunk-Based Delivery**: Reduces gRPC message overhead
-- **Offset Tracking**: Enables resume capability (future enhancement)
 - **Binary Preservation**: No encoding/decoding overhead
 
 ## Error Handling
@@ -283,10 +279,6 @@ go j.captureStream(j.process.Stderr, OutputTypeStderr) // Independent streams fo
 - **Buffer Size Caps**: Prevent memory exhaustion on long-running jobs
 - **Client Limits**: Maximum concurrent streaming clients per job
 - **Backpressure**: Slow client handling without affecting others
-
-### Resume Capability
-- **Offset-Based Streaming**: Client can request output from specific position
-- **Persistent Storage**: Buffer survival across server restarts
 
 ## Testing Approach
 

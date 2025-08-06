@@ -137,9 +137,8 @@ type JobManager interface {
 
 // OutputChunk preserves byte boundaries to handle binary output correctly
 type OutputChunk struct {
-    Data   []byte
-    Offset int64
-    Type   OutputType
+    Data []byte
+    Type OutputType
 }
 
 
@@ -192,7 +191,7 @@ if err != nil {
 
 // Process streaming data to display output as it arrives
 for chunk := range outputCh {
-    fmt.Printf("Received %d bytes at offset %d\n", len(chunk.Data), chunk.Offset)
+    fmt.Printf("Received %d bytes\n", len(chunk.Data))
     os.Stdout.Write(chunk.Data)
 }
 
@@ -347,8 +346,7 @@ message StreamOutputRequest {
 
 message OutputChunk {
   bytes data = 1;
-  int64 offset = 2;
-  OutputType type = 3;
+  OutputType type = 2;
 }
 
 
