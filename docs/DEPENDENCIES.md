@@ -12,8 +12,8 @@ This document analyzes external dependencies for the job worker service, priorit
 **Required by Challenge**
 
 ```go
-google.golang.org/grpc v1.59.0
-google.golang.org/protobuf v1.31.0
+google.golang.org/grpc v1.74.2
+google.golang.org/protobuf v1.36.6
 ```
 
 **Rationale:**
@@ -211,8 +211,8 @@ import "testing"
 ### Production Dependencies
 ```go
 // Required by challenge
-google.golang.org/grpc v1.59.0
-google.golang.org/protobuf v1.31.0
+google.golang.org/grpc v1.74.2
+google.golang.org/protobuf v1.36.6
 
 // CLI quality of life
 github.com/urfave/cli/v2 v2.25.7
@@ -221,7 +221,7 @@ github.com/urfave/cli/v2 v2.25.7
 ### Development Dependencies
 ```go
 // Code generation
-google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.3.0
+google.golang.org/grpc/cmd/protoc-gen-go-grpc v1.5.1
 
 // Testing
 github.com/stretchr/testify v1.8.4
@@ -279,18 +279,18 @@ github.com/stretchr/testify v1.8.4
 protoc v3.21.12
 
 # Go protocol buffer plugins
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.6
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1
 ```
 
 ### Development Tools (Optional)
 ```bash
 # Code formatting and linting
-go install golang.org/x/tools/cmd/goimports@latest
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+go install golang.org/x/tools/cmd/goimports@v0.15.0
+go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.55.2
 
 # Testing
-go install github.com/rakyll/gotest@latest  # Colored test output
+go install github.com/rakyll/gotest@v0.0.6  # Colored test output
 ```
 
 ## Version Strategy
