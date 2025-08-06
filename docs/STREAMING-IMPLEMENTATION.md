@@ -127,6 +127,8 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
                     pointer = bufferSize // Prevents duplicate data delivery
                 case <-ctx.Done():
                     return // Handles client disconnect gracefully
+                case <-time.After(5 * time.Second):
+                    return // Terminates unresponsive clients to prevent goroutine leaks
                 }
             }
             
@@ -150,6 +152,8 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
                         Type:   OutputTypeStdout,
                     }:
                     case <-ctx.Done():
+                    case <-time.After(5 * time.Second):
+                        // Final data delivery timeout - prevents hanging on unresponsive clients
                     }
                 }
                 return
@@ -166,6 +170,7 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
 - **Gap-Free Delivery**: Historical data sent immediately, then live streaming
 - **Graceful Exit**: Multiple exit paths (client disconnect, process completion)
 - **Buffered Channel**: 10-element buffer prevents blocking on client processing delays
+- **Client Timeout**: 5-second timeout prevents goroutine leaks from unresponsive clients
 
 ## Efficient Discovery Mechanism
 
@@ -252,8 +257,8 @@ if err != nil {
 ```
 
 ### Client Errors
-- **Send Timeouts**: Context cancellation prevents indefinite blocking
-- **Channel Full**: Buffered channels with reasonable limits
+- **Send Timeouts**: 5-second timeout prevents indefinite blocking on slow clients
+- **Channel Full**: Buffered channels with reasonable limits, unresponsive clients terminated
 - **Network Issues**: gRPC layer handles connection failures
 
 ## Future Enhancements
