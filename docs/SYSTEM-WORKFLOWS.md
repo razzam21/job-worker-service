@@ -28,10 +28,10 @@ Admin Client                 API Server                    Job Library
      │                           │ ValidateAuth(read/admin)    │
      │                           ├─────────────────────────────│
      │                           │                             │
-     │                           │ GetOutput(job_id, offset)   │
+     │                           │ GetOutput(job_id)           │
      │                           ├─────────────────────────────▶
      │                           │                             │
-     │                           │ OutputChunk{data, offset}   │
+     │                           │ OutputChunk{data}           │
      │                           │◀─────────────────────────────
      │ OutputChunk{data}         │                             │
      │◀───────────────────────── │                             │
@@ -68,7 +68,7 @@ Late-joining scenario (streaming from beginning):
      │                           │   $ jobctl stream job-123 │
      │                           │◀─────────────────────────── │
      │                           │                           │
-     │                           │ GetOutput(from_offset=0)  │
+     │                           │ GetOutput(job_id)         │
      │                           │ [Retrieves ALL stored     │
      │                           │  output from memory]      │
      │                           │─────────────────────────▶ │
