@@ -40,6 +40,12 @@ Security robustness prioritized over marginal performance gains in a process man
 
 
 
+## Design Decision Context
+
+**Note on Compatibility Analysis**: While compatibility isn't a concern for this demo since we control both client and server, the detailed analysis serves as documentation for future context. In production systems, even when building both client and server, compatibility considerations remain important because while we control the server, we don't control where clients are deployed. Having multiple cipher alternatives can broaden the reach of the product across different environments and hardware. However, in this controlled demo environment, that consideration isn't necessary.
+
+The analysis documents the decision-making process (what was considered, why alternatives were rejected) which is invaluable when revisiting code months later or when new team members join. It prevents re-litigating the same decisions and helps maintain consistency.
+
 ## mTLS Specific Considerations
 
 ### Certificate Algorithms
