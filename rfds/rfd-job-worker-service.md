@@ -206,21 +206,12 @@ fmt.Printf("Job %s is running: %t\n", jobID, isRunning)
 err = manager.StopJob(ctx, jobID)
 ```
 
-### Error Handling
-
-```go
-var (
-    ErrJobNotFound    = errors.New("job not found")
-    ErrInvalidCommand = errors.New("invalid command")
-)
-```
-
 ### Key Design Principles
 
 - **Clean Library Interface**: Library focuses on process management without authorization concerns
 - **Context Propagation**: All methods accept context for cancellation and timeouts
 - **Streaming Channels**: Output streaming returns Go channels for natural concurrency
-- **Error Types**: Specific error types enable proper gRPC status code mapping
+- **Standard gRPC Errors**: API layer uses gRPC status codes for proper error semantics
 
 ### Authorization Strategy
 
@@ -240,7 +231,7 @@ func (s *jobServer) StartJob(ctx context.Context, req *StartJobRequest) (*StartJ
 // Library call with pre-generated jobID
     err := s.manager.StartJob(ctx, jobID, req.Command, req.Args)
     if err != nil {
-        return nil, err
+        return nil, status.Error(codes.InvalidArgument, "failed to start job")
     }
 
     // Extract user identity from mTLS certificate
@@ -261,7 +252,10 @@ func (s *jobServer) StopJob(ctx context.Context, req *StopJobRequest) (*StopJobR
     
     // Clean library call
     err := s.manager.StopJob(ctx, req.JobId)
-    return &StopJobResponse{Success: err == nil}, err
+    if err != nil {
+        return nil, status.Error(codes.NotFound, "job not found")
+    }
+    return &StopJobResponse{}, nil
 }
 
 func (s *jobServer) GetJobStatus(ctx context.Context, req *GetJobStatusRequest) (*GetJobStatusResponse, error) {
@@ -273,7 +267,7 @@ func (s *jobServer) GetJobStatus(ctx context.Context, req *GetJobStatusRequest) 
     // Clean library call
     isRunning, err := s.manager.GetJobStatus(ctx, req.JobId)
     if err != nil {
-        return nil, err
+        return nil, status.Error(codes.NotFound, "job not found")
     }
     
     return &GetJobStatusResponse{IsRunning: isRunning}, nil
@@ -288,7 +282,7 @@ func (s *jobServer) StreamOutput(req *StreamOutputRequest, stream JobWorker_Stre
     // Clean library call
     outputCh, err := s.manager.StreamOutput(stream.Context(), req.JobId)
     if err != nil {
-        return err
+        return status.Error(codes.NotFound, "job not found")
     }
     
     // Stream data to client
@@ -329,7 +323,7 @@ message StopJobRequest {
 }
 
 message StopJobResponse {
-  bool success = 1;
+  // Empty response - success indicated by nil error (codes.OK)
 }
 
 message GetJobStatusRequest {
