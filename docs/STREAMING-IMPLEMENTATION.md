@@ -32,7 +32,6 @@ type Job struct {
     outputCh chan struct{}    // Prevents polling by signaling data availability
     doneCh   chan struct{}    // Coordinates clean shutdown across goroutines
     buffer   atomic.Value     // Ensures race-free access to growing output data
-    owner    string          // Enables per-user job isolation
 }
 
 type OutputChunk struct {
@@ -228,7 +227,7 @@ for {
 
 3. **Process Killed via StopJob**
    ```go
-   func (jm *jobManager) StopJob(ctx context.Context, jobID string, owner string) error {
+   func (jm *jobManager) StopJob(ctx context.Context, jobID string) error {
        // ... validation code ...
        
        // Kill the process - this will cause process.Wait() to return

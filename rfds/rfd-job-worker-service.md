@@ -47,7 +47,6 @@ Detailed system interaction workflows are documented in [SYSTEM-WORKFLOWS.md](..
 - **Output Streaming**: Non-blocking, tail-f like functionality with full history access and live streaming
 - **State Management**: Thread-safe job state with notification mechanisms
 - **Resource Tracking**: Process metadata and resource utilization
-- **User Ownership**: Track job ownership per user for access control
 
 #### 2. API Server
 - **Authentication**: mTLS-only authentication (no custom crypto)
@@ -117,7 +116,7 @@ Detailed system interaction workflows are documented in [SYSTEM-WORKFLOWS.md](..
 
 ### Process Security
 - **Command Execution**: Separate command and args fields prevent shell injection attacks using direct process execution (`exec.Command(command, args...)`) instead of shell parsing
-- **Process Isolation**: Users cannot access other users' jobs, job ownership verified on all operations
+- **Process Isolation**: Users cannot access other users' jobs, ownership verified at API layer
 - **Runtime Environment**: Jobs run with server process privileges in controlled environment
 - **Resource Protection**: Output streaming limited to prevent resource exhaustion, no arbitrary code execution in server process
 
@@ -130,10 +129,10 @@ The core library provides a clean interface that the gRPC server uses for job ma
 ```go
 // JobManager interface abstracts process management to enable testing and modularity
 type JobManager interface {
-    StartJob(ctx context.Context, cmd string, args []string, owner string) (string, error)
-    StopJob(ctx context.Context, jobID string, owner string) error
-    GetJobStatus(ctx context.Context, jobID string, owner string) (bool, error) // returns true if running
-    StreamOutput(ctx context.Context, jobID string, owner string) (<-chan OutputChunk, error)
+    StartJob(ctx context.Context, jobID string, cmd string, args []string) error
+    StopJob(ctx context.Context, jobID string) error
+    GetJobStatus(ctx context.Context, jobID string) (bool, error) // returns true if running
+    StreamOutput(ctx context.Context, jobID string) (<-chan OutputChunk, error)
 }
 
 // OutputChunk preserves byte boundaries to handle binary output correctly
@@ -169,7 +168,6 @@ type Job struct {
     outputCh  chan struct{}
     doneCh    chan struct{}
     buffer    atomic.Value  // prevents race conditions during concurrent reads
-    owner     string
 }
 ```
 
@@ -179,14 +177,15 @@ type Job struct {
 // Initialize job manager for process lifecycle management
 manager := NewJobManager()
 
-// Start a job with user isolation for security
-jobID, err := manager.StartJob(ctx, "ping", []string{"google.com"}, "user1")
+// Start a job
+jobID := generateJobID()
+err := manager.StartJob(ctx, jobID, "ping", []string{"google.com"})
 if err != nil {
     return err
 }
 
 // Stream output to get real-time process data
-outputCh, err := manager.StreamOutput(ctx, jobID, "user1")
+outputCh, err := manager.StreamOutput(ctx, jobID)
 if err != nil {
     return err
 }
@@ -198,32 +197,111 @@ for chunk := range outputCh {
 }
 
 // Check if job is still running
-isRunning, err := manager.GetJobStatus(ctx, jobID, "user1")
+isRunning, err := manager.GetJobStatus(ctx, jobID)
 if err != nil {
     return err
 }
 fmt.Printf("Job %s is running: %t\n", jobID, isRunning)
 
 // Stop job to terminate long-running processes
-err = manager.StopJob(ctx, jobID, "user1")
+err = manager.StopJob(ctx, jobID)
 ```
 
 ### Error Handling
 
 ```go
 var (
-    ErrJobNotFound      = errors.New("job not found")
-    ErrPermissionDenied = errors.New("permission denied")
-    ErrInvalidCommand   = errors.New("invalid command")
+    ErrJobNotFound    = errors.New("job not found")
+    ErrInvalidCommand = errors.New("invalid command")
 )
 ```
 
 ### Key Design Principles
 
-- **Owner-based Authorization**: All operations require owner parameter for user isolation
+- **Clean Library Interface**: Library focuses on process management without authorization concerns
 - **Context Propagation**: All methods accept context for cancellation and timeouts
 - **Streaming Channels**: Output streaming returns Go channels for natural concurrency
 - **Error Types**: Specific error types enable proper gRPC status code mapping
+
+### Authorization Strategy
+
+Authorization is handled at the API server layer, not in the library:
+
+```go
+// API server extracts user from mTLS certificate and maintains job ownership mapping
+type jobServer struct {
+    manager   JobManager           // Clean library interface
+    jobOwners map[string]string    // jobID -> owner mapping for authorization
+    ownersMu  sync.RWMutex
+}
+
+func (s *jobServer) StartJob(ctx context.Context, req *StartJobRequest) (*StartJobResponse, error) {
+    jobID := generateJobID()
+
+// Library call with pre-generated jobID
+    err := s.manager.StartJob(ctx, jobID, req.Command, req.Args)
+    if err != nil {
+        return nil, err
+    }
+
+    // Extract user identity from mTLS certificate
+    owner := getUserFromContext(ctx)
+    
+    s.ownersMu.Lock()
+    s.jobOwners[jobID] = owner
+    s.ownersMu.Unlock()
+
+    return &StartJobResponse{JobId: jobID}, nil
+}
+
+func (s *jobServer) StopJob(ctx context.Context, req *StopJobRequest) (*StopJobResponse, error) {
+    // Authorization check at API layer
+    if !s.canAccess(ctx, req.JobId) {
+        return nil, status.Error(codes.PermissionDenied, "access denied")
+    }
+    
+    // Clean library call
+    err := s.manager.StopJob(ctx, req.JobId)
+    return &StopJobResponse{Success: err == nil}, err
+}
+
+func (s *jobServer) GetJobStatus(ctx context.Context, req *GetJobStatusRequest) (*GetJobStatusResponse, error) {
+    // Authorization check at API layer
+    if !s.canAccess(ctx, req.JobId) {
+        return nil, status.Error(codes.PermissionDenied, "access denied")
+    }
+    
+    // Clean library call
+    isRunning, err := s.manager.GetJobStatus(ctx, req.JobId)
+    if err != nil {
+        return nil, err
+    }
+    
+    return &GetJobStatusResponse{IsRunning: isRunning}, nil
+}
+
+func (s *jobServer) StreamOutput(req *StreamOutputRequest, stream JobWorker_StreamOutputServer) error {
+    // Authorization check at API layer
+    if !s.canAccess(stream.Context(), req.JobId) {
+        return status.Error(codes.PermissionDenied, "access denied")
+    }
+    
+    // Clean library call
+    outputCh, err := s.manager.StreamOutput(stream.Context(), req.JobId)
+    if err != nil {
+        return err
+    }
+    
+    // Stream data to client
+    for chunk := range outputCh {
+        if err := stream.Send(&chunk); err != nil {
+            return err
+        }
+    }
+    
+    return nil
+}
+```
 
 ## Proto Specification
 
@@ -287,6 +365,10 @@ enum OutputType {
 jobworker start ping google.com
 # Output: Job started with ID: abc123
 
+# Try to start a job with invalid command
+jobworker start invalidcommand
+# Output: Error: failed to start job: executable file not found in $PATH
+
 # Stream job output to see progress without polling
 jobworker stream abc123
 # Shows live output from the ping command
@@ -333,7 +415,7 @@ jobworker stream abc123  # In second terminal
 - Buffer sizes: 4KB for output streaming
 - Job storage: In-memory map with mutex
 - Output storage: Complete process output retained in memory per job
-- User identity: Extracted from certificate CN field for job ownership tracking
+- User identity: Extracted from certificate CN field for API-layer authorization
 
 This approach prioritizes getting the system running quickly over configuration flexibility. Production deployment can add configuration layers later with TODO comments marking these areas.
 
