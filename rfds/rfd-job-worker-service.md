@@ -360,28 +360,32 @@ enum OutputType {
 
 ```bash
 # Start a job with user context for isolation
-jobworker start ping google.com
+jobworker --cert certs/client1.crt --key certs/client1.key start ping google.com
 # Output: Job started with ID: abc123
 
 # Try to start a job with invalid command
-jobworker start invalidcommand
+jobworker --cert certs/client1.crt --key certs/client1.key start invalidcommand
 # Output: Error: failed to start job: executable file not found in $PATH
 
 # Stream job output to see progress without polling
-jobworker stream abc123
+jobworker --cert certs/client1.crt --key certs/client1.key stream abc123
 # Shows live output from the ping command
 
 # Check if job is still running
-jobworker status abc123
+jobworker --cert certs/client1.crt --key certs/client1.key status abc123
 # Output: Job abc123 is running: true
 
 # Stop a running job to free resources
-jobworker stop abc123
+jobworker --cert certs/client1.crt --key certs/client1.key stop abc123
 # Output: Job abc123 stopped successfully
 
 # Multiple clients can stream to share output viewing
-jobworker stream abc123  # In second terminal
+jobworker --cert certs/client1.crt --key certs/client1.key stream abc123  # In second terminal
 # Each client gets complete history + live output
+
+# Different user cannot access another user's job
+jobworker --cert certs/client2.crt --key certs/client2.key stream abc123
+# Output: Error: access denied
 ```
 
 ## Test Plan
