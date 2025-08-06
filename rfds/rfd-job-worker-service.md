@@ -245,7 +245,6 @@ message StartJobRequest {
 
 message StartJobResponse {
   string job_id = 1;
-  string owner = 2;
 }
 
 message StopJobRequest {
