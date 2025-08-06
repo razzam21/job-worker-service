@@ -128,7 +128,7 @@ The core library provides a clean interface that the gRPC server uses for job ma
 ### Core Interface
 
 ```go
-// JobManager provides the main library interface
+// JobManager interface abstracts process management to enable testing and modularity
 type JobManager interface {
     StartJob(ctx context.Context, cmd string, args []string, owner string) (string, error)
     StopJob(ctx context.Context, jobID string, owner string) error
@@ -136,24 +136,22 @@ type JobManager interface {
     StreamOutput(ctx context.Context, jobID string, owner string) (<-chan OutputChunk, error)
 }
 
-// JobStatus represents current job state
+// JobStatus groups essential job information to minimize client round-trips
 type JobStatus struct {
     JobID     string
     State     JobState
     ExitCode  int32
-    StartTime time.Time
-    EndTime   time.Time
     Owner     string
 }
 
-// OutputChunk represents streaming output data
+// OutputChunk preserves byte boundaries to handle binary output correctly
 type OutputChunk struct {
     Data   []byte
     Offset int64
     Type   OutputType
 }
 
-// JobState represents job execution state
+// JobState uses int32 for protobuf enum compatibility
 type JobState int32
 
 const (
@@ -164,7 +162,7 @@ const (
     JobStateStopped
 )
 
-// OutputType distinguishes stdout/stderr
+// OutputType enables proper terminal display routing
 type OutputType int32
 
 const (
@@ -176,58 +174,56 @@ const (
 ### Implementation Structure
 
 ```go
-// jobManager implements JobManager interface
+// jobManager uses map for fast job lookup and RWMutex for concurrent access
 type jobManager struct {
     jobs   map[string]*Job
     jobsMu sync.RWMutex
 }
 
-// Job represents a running process with streaming capabilities
+// Job encapsulates process state to enable safe concurrent operations
 type Job struct {
     jobID     string
     process   *exec.Cmd
     outputCh  chan struct{}
     doneCh    chan struct{}
-    buffer    atomic.Value  // []byte
+    buffer    atomic.Value  // prevents race conditions during concurrent reads
     owner     string
-    state     atomic.Value  // JobState
-    startTime time.Time
-    endTime   atomic.Value  // time.Time
+    state     atomic.Value  // enables lock-free state checking
 }
 ```
 
 ### Usage Examples
 
 ```go
-// Initialize job manager
+// Initialize job manager for process lifecycle management
 manager := NewJobManager()
 
-// Start a job
+// Start a job with user isolation for security
 jobID, err := manager.StartJob(ctx, "ping", []string{"google.com"}, "user1")
 if err != nil {
     return err
 }
 
-// Stream output
+// Stream output to get real-time process data
 outputCh, err := manager.StreamOutput(ctx, jobID, "user1")
 if err != nil {
     return err
 }
 
-// Process streaming data
+// Process streaming data to display output as it arrives
 for chunk := range outputCh {
     fmt.Printf("Received %d bytes at offset %d\n", len(chunk.Data), chunk.Offset)
     os.Stdout.Write(chunk.Data)
 }
 
-// Get job status
+// Get job status to check completion state
 status, err := manager.GetJobStatus(ctx, jobID, "user1")
 if err != nil {
     return err
 }
 fmt.Printf("Job %s is %v\n", status.JobID, status.State)
 
-// Stop job
+// Stop job to terminate long-running processes
 err = manager.StopJob(ctx, jobID, "user1")
 ```
 
@@ -288,9 +284,7 @@ message GetJobStatusRequest {
 message GetJobStatusResponse {
   JobState state = 1;
   int32 exit_code = 2;
-  int64 start_time = 3;
-  int64 end_time = 4;
-  string owner = 5;
+  string owner = 3;
 }
 
 message StreamOutputRequest {
@@ -320,23 +314,23 @@ enum OutputType {
 ## CLI Usage Examples
 
 ```bash
-# Start a job (as user1)
+# Start a job with user context for isolation
 jobworker start ping google.com
 # Output: Job started with ID: abc123
 
-# Stream job output in real-time
+# Stream job output to see progress without polling
 jobworker stream abc123
 # Shows live output from the ping command
 
-# Check job status
+# Check job status to verify execution state
 jobworker status abc123
-# Output: Job abc123 - RUNNING - Started: 2023-12-01 10:30:15
+# Output: Job abc123 - RUNNING
 
-# Stop a running job
+# Stop a running job to free resources
 jobworker stop abc123
 # Output: Job abc123 stopped successfully
 
-# Multiple clients can stream simultaneously
+# Multiple clients can stream to share output viewing
 jobworker stream abc123  # In second terminal
 # Each client gets complete history + live output
 ```
