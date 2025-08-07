@@ -107,6 +107,8 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
         defer close(clientCh) // Signals EOF to client when streaming ends
         
         pointer := int64(0) // Enables gap-free delivery from process start
+        timeout := time.NewTimer(30 * time.Second) // Reset on each successful send
+        defer timeout.Stop()
         
         for {
             // Always check buffer first to catch gap data
@@ -126,10 +128,11 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
                 select {
                 case clientCh <- chunk:
                     pointer = bufferSize // Prevents duplicate data delivery
+                    timeout.Reset(30 * time.Second) // Reset timeout after successful send
                 case <-ctx.Done():
                     return // Handles client disconnect gracefully
-                case <-time.After(5 * time.Second):
-                    return // Terminates unresponsive clients to prevent goroutine leaks
+                case <-timeout.C:
+                    return // Client hasn't read anything for 30 seconds
                 }
             }
             
@@ -138,6 +141,8 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
             case <-j.outputCh: // Wakes up immediately when new data arrives
                 continue // Rechecks buffer for new data
             case <-ctx.Done(): // Handles client cancellation cleanly
+                return
+            case <-timeout.C: // Client hasn't read anything for 30 seconds
                 return
             case <-j.doneCh: // Ensures final data delivery before exit
                 // Prevents data loss when process terminates
@@ -152,8 +157,8 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
                         Type: OutputTypeStdout,
                     }:
                     case <-ctx.Done():
-                    case <-time.After(5 * time.Second):
-                        // Final data delivery timeout - prevents hanging on unresponsive clients
+                    case <-timeout.C:
+                        // Final attempt with existing timeout
                     }
                 }
                 return
@@ -170,7 +175,6 @@ func (j *Job) StreamOutput(ctx context.Context) <-chan OutputChunk {
 - **Gap-Free Delivery**: Historical data sent immediately, then live streaming
 - **Graceful Exit**: Multiple exit paths (client disconnect, process completion)
 - **Buffered Channel**: 10-element buffer prevents blocking on client processing delays
-- **Client Timeout**: 5-second timeout prevents goroutine leaks from unresponsive clients
 
 ## Efficient Discovery Mechanism
 
@@ -263,8 +267,7 @@ if err != nil {
 ```
 
 ### Client Errors
-- **Send Timeouts**: 5-second timeout prevents indefinite blocking on slow clients
-- **Channel Full**: Buffered channels with reasonable limits, unresponsive clients terminated
+- **Channel Full**: Buffered channels with reasonable limits, timeout resets after each successful read
 - **Network Issues**: gRPC layer handles connection failures
 
 ## Future Enhancements
